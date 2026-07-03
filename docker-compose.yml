@@ -1,80 +1,43 @@
 services:
   emotion:
-    build: .
     image: emotion:latest
     container_name: emotion
-    restart: unless-stopped
     ports:
-      - "8096:8096"
-    # Mount your media root here. The path inside the container (/data) is what
-    # you'll pass to POST /admin/library/scan as "root".
+      - 8097:8096/tcp
     volumes:
-      - ./data:/data:ro
+      # 原只读ro会导致程序无法写入缓存/日志，已去掉ro改为读写
+      - /mnt/ssd1/Emotion/data:/data
     environment:
-      APP_NAME: emotion
-      APP_LOG_LEVEL: info
-
-      DB_DRIVER: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: emotion
-      DB_USERNAME: emotion
-      DB_PASSWORD: emotion_pwd
-      DB_MAX_OPEN_CONNS: 100
-      DB_MAX_IDLE_CONNS: 25
-      DB_CONN_MAX_LIFETIME_MINUTES: 30
-
-      VALKEY_HOST: valkey
-      VALKEY_PORT: 6379
-
-      # API_KEY is the admin key used by Sakura_embyboss and other tools.
-      API_KEY: ${API_KEY:-change-me-please}
-      # Dashboard login account. The first startup creates this account in DB.
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-
-      # TMDB metadata (optional). Leave empty to disable.
-      # Get a free v3 key at https://www.themoviedb.org/settings/api
-      TMDB_API_KEY: ""
-      TMDB_LANGUAGE: zh-CN
-      TMDB_AUTO_SCRAPE: "true"
-      TVDB_API_KEY: ""
-      TVDB_PIN: ""
-      OMDB_API_KEY: ""
-
-      EMBY_VERSION: 4.8.10.0
-      EMBY_ID: emotion
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  postgres:
-    image: postgres:16-alpine
+      # ========== 新增代理配置 ==========
+      - HTTP_PROXY=http://192.168.1.100:7890
+      - HTTPS_PROXY=http://192.168.1.100:7890
+      - ALL_PROXY=socks5://192.168.1.100:7890
+      # 内网服务不走代理，避免数据库/缓存连接失败
+      - NO_PROXY=localhost,127.0.0.1,postgres,valkey,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+      # =================================
+      - DB_DATABASE=emotion
+      - TVDB_PIN=
+      - VALKEY_HOST=valkey
+      - TVDB_API_KEY=
+      - DB_USERNAME=emotion
+      - VALKEY_PORT=6379
+      - DB_CONN_MAX_LIFETIME_MINUTES=30
+      - DB_HOST=postgres
+      - EMBY_ID=emotion
+      - API_KEY=change-me-please
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=
+      - DB_DRIVER=postgres
+      - APP_LOG_LEVEL=info
+      - DB_MAX_IDLE_CONNS=25
+      - TMDB_API_KEY=
+      - DB_PASSWORD=emotion_pwd
+      - OMDB_API_KEY=
+      - DB_PORT=5432
+      - DB_MAX_OPEN_CONNS=100
+      - EMBY_VERSION=4.8.10.0
+      - TMDB_AUTO_SCRAPE=true
+      - TMDB_LANGUAGE=zh-CN
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: emotion
-      POSTGRES_USER: emotion
-      POSTGRES_PASSWORD: emotion_pwd
-    command:
-      - postgres
-      - -c
-      - max_connections=200
-      - -c
-      - shared_buffers=256MB
-      - -c
-      - effective_cache_size=768MB
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  valkey:
-    image: valkey/valkey:7-alpine
-    restart: unless-stopped
-    command: ["valkey-server", "--save", "", "--appendonly", "no"]
-
-volumes:
-  postgres-data:
+    network_mode: bridge
+    user: app
