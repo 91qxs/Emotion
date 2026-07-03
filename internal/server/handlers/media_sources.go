@@ -20,7 +20,7 @@ func DetectCodec(stream map[string]any) *CodecInfo {
 	if codec == "" {
 		codec = stringVal(stream["codec_type"])
 	}
-	
+
 	return &CodecInfo{
 		Codec:    normalizeCodec(codec),
 		Profile:  stringVal(stream["profile"]),
@@ -65,7 +65,7 @@ func normalizeCodec(codec string) string {
 		return "flac"
 	case "pcm_s16le", "pcm":
 		return "pcm"
-	case "subrip", "ass", "ssa":
+	case "subrip", "ass", "ssa", "webvtt", "srt":
 		return codec // Return as-is for subtitles
 	default:
 		return codec
@@ -77,25 +77,26 @@ func EnhanceMediaStreamInfo(stream map[string]any) map[string]any {
 	if stream == nil {
 		stream = make(map[string]any)
 	}
-	
+
 	codecType := stringVal(stream["codec_type"])
 	if codecType == "" {
 		return stream
 	}
-	
+
 	switch codecType {
 	case "video":
 		enableVideoHWDecoding(stream)
 		addVideoColorInfo(stream)
-		
+		addVideoResolution(stream)
+
 	case "audio":
 		enableAudioHWDecoding(stream)
 		addAudioChannelInfo(stream)
-		
+
 	case "subtitle":
 		formatSubtitleInfo(stream)
 	}
-	
+
 	return stream
 }
 
@@ -121,10 +122,36 @@ func addVideoColorInfo(stream map[string]any) {
 	}
 }
 
+func addVideoResolution(stream map[string]any) {
+	if width := anyInt64(stream["width"]); width > 0 {
+		stream["Width"] = width
+	}
+	if height := anyInt64(stream["height"]); height > 0 {
+		stream["Height"] = height
+	}
+	// Calculate and set resolution level
+	if width, ok := stream["Width"].(float64); ok {
+		if height, ok := stream["Height"].(float64); ok {
+			h := int64(height)
+			if h >= 2160 {
+				stream["ResolutionType"] = "4K"
+			} else if h >= 1080 {
+				stream["ResolutionType"] = "1080p"
+			} else if h >= 720 {
+				stream["ResolutionType"] = "720p"
+			} else if h >= 480 {
+				stream["ResolutionType"] = "480p"
+			} else {
+				stream["ResolutionType"] = "SD"
+			}
+		}
+	}
+}
+
 func enableAudioHWDecoding(stream map[string]any) {
 	codec := normalizeCodec(stringVal(stream["codec_name"]))
 	switch codec {
-	case "aac", "mp3", "flac", "dts", "ac3", "eac3":
+	case "aac", "mp3", "flac", "dts", "ac3", "eac3", "opus":
 		stream["SupportsHwDecode"] = true
 	default:
 		stream["SupportsHwDecode"] = false
@@ -139,6 +166,10 @@ func addAudioChannelInfo(stream map[string]any) {
 	if sampleRate := anyInt64(stream["sample_rate"]); sampleRate > 0 {
 		stream["SampleRate"] = sampleRate
 	}
+	// Add bitrate if available
+	if bitRate := anyInt64(stream["bit_rate"]); bitRate > 0 {
+		stream["BitRate"] = bitRate
+	}
 }
 
 func getChannelLayout(channels int) string {
@@ -147,8 +178,16 @@ func getChannelLayout(channels int) string {
 		return "mono"
 	case 2:
 		return "stereo"
+	case 3:
+		return "2.1"
+	case 4:
+		return "quad"
+	case 5:
+		return "4.1"
 	case 6:
 		return "5.1"
+	case 7:
+		return "6.1"
 	case 8:
 		return "7.1"
 	default:
@@ -161,11 +200,12 @@ func formatSubtitleInfo(stream map[string]any) {
 	stream["SubtitleFormat"] = codec
 	stream["IsExternal"] = false
 	stream["IsTextSubtitleStream"] = isTextCodec(codec)
+	stream["SupportsExternalStream"] = true
 }
 
 func isTextCodec(codec string) bool {
 	switch codec {
-	case "subrip", "ass", "ssa", "webvtt", "srt", "vtt":
+	case "subrip", "ass", "ssa", "webvtt", "srt", "vtt", "utf8":
 		return true
 	default:
 		return false
@@ -177,4 +217,22 @@ func stringVal(v any) string {
 		return s
 	}
 	return ""
+}
+
+// anyInt64 safely converts any value to int64, returning 0 for non-numeric types.
+func anyInt64(v any) int64 {
+	switch val := v.(type) {
+	case float64:
+		return int64(val)
+	case int64:
+		return val
+	case int:
+		return int64(val)
+	case string:
+		var result int64
+		fmt.Sscanf(val, "%d", &result)
+		return result
+	default:
+		return 0
+	}
 }
